@@ -1,4 +1,6 @@
-streamlit==1.25.0
-numpy
-Pillow
+streamlit==1.26.0
+numpy==1.24.3
+pillow
 gdown
+tensorflow==2.12.0
+keras==2.12.0
