@@ -1,6 +1,6 @@
-streamlit
-tensorflow==2.13
+streamlit==1.26.0
+tensorflow==2.12.0
 numpy
-pillow
+Pillow
 matplotlib
-nltk
+scikit-learn
