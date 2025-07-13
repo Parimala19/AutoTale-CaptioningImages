@@ -1,112 +1,106 @@
-import streamlit as st
-from PIL import Image
-import numpy as np
-import tensorflow as tf
-import pickle
 import os
-from keras.applications.inception_v3 import InceptionV3, preprocess_input
-from keras.preprocessing import image
-from keras.models import Model
+import gdown
+import streamlit as st
+import numpy as np
+from PIL import Image
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.models import load_model
+import pickle
 
-# Page Config
-st.set_page_config(page_title="AutoTale - AI Caption Generator", layout="centered")
+# ---------------- CONFIG ----------------
+st.set_page_config(page_title="AutoTale - AI Image Captioning", page_icon="📸", layout="centered")
 
-#  Blue Themed UI
+# ---------------- UI HEADER ----------------
 st.markdown("""
     <style>
-    .main {
-        background-color: #f0f8ff;
-    }
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-    }
-    .stButton>button {
-        background-color: #4e8ef7;
-        color: white;
-        border-radius: 10px;
-        height: 3em;
-        width: 100%;
+    .title {
+        font-size: 40px;
         font-weight: bold;
+        color: #2C3E50;
+        text-align: center;
+        margin-bottom: 10px;
+    }
+    .subtext {
+        text-align: center;
+        font-size: 18px;
+        color: #34495E;
+        margin-bottom: 40px;
     }
     </style>
+    <div class="title">📸 AutoTale: AI Image Caption Generator</div>
+    <div class="subtext">Upload an image and let AI generate a caption perfect for Instagram, LinkedIn, or YouTube Shorts!</div>
 """, unsafe_allow_html=True)
 
-st.title("📸 AutoTale: AI-Based Image Caption Generator")
-st.write("Upload an image and get a creative caption suitable for LinkedIn, Instagram, or YouTube Shorts!")
+# ---------------- Download Model If Not Exists ----------------
+MODEL_PATH = "caption_model.h5"
+MODEL_DRIVE_ID = "1O3p-ZHHn9ANhVEGLbR4ST5rHcxhxMEjd"
+MODEL_URL = f"https://drive.google.com/uc?id={MODEL_DRIVE_ID}"
 
-# Load tokenizer
-with open("tokenizer.pkl", "rb") as f:
-    tokenizer = pickle.load(f)
+@st.cache_resource
+def load_caption_model():
+    if not os.path.exists(MODEL_PATH):
+        st.info(" Downloading model from Google Drive...")
+        gdown.download(MODEL_URL, MODEL_PATH, quiet=False)
+    return load_model(MODEL_PATH)
 
-# Load max_length
-with open("max_length.pkl", "rb") as f:
-    max_length = pickle.load(f)
+model = load_caption_model()
 
-# Load trained model
-model = tf.keras.models.load_model("caption_model.h5")
+# ---------------- Load Tokenizer & Feature Extractor ----------------
+with open("tokenizer.pkl", "rb") as handle:
+    tokenizer = pickle.load(handle)
 
-# InceptionV3 Feature Extractor (without top)
-def get_feature_extractor():
-    base_model = InceptionV3(weights='imagenet')
-    model = Model(inputs=base_model.input, outputs=base_model.get_layer('avg_pool').output)
-    return model
+with open("features.pkl", "rb") as f:
+    features = pickle.load(f)
 
-feature_model = get_feature_extractor()
+max_length = 34  # Set based on your preprocessing
 
-# Preprocess image
-def extract_features(img_path, model):
-    img = image.load_img(img_path, target_size=(299, 299))
-    x = image.img_to_array(img)
-    x = np.expand_dims(x, axis=0)
-    x = preprocess_input(x)
-    feature = model.predict(x)
-    return feature
-
-# Generate caption
+# ---------------- Generate Caption ----------------
 def generate_caption(model, tokenizer, photo, max_length):
     in_text = 'startseq'
     for _ in range(max_length):
         sequence = tokenizer.texts_to_sequences([in_text])[0]
-        sequence = tf.keras.preprocessing.sequence.pad_sequences([sequence], maxlen=max_length)
-        yhat = model.predict([photo, sequence], verbose=0)
-        yhat = np.argmax(yhat)
-        word = None
-        for w, index in tokenizer.word_index.items():
-            if index == yhat:
-                word = w
-                break
+        sequence = pad_sequences([sequence], maxlen=max_length)
+        y_pred = model.predict([photo, sequence], verbose=0)
+        y_pred = np.argmax(y_pred)
+        word = tokenizer.index_word.get(y_pred, None)
         if word is None:
             break
         in_text += ' ' + word
         if word == 'endseq':
             break
-    final = in_text.replace('startseq', '').replace('endseq', '').strip().capitalize()
-    return final
+    return in_text.replace('startseq', '').replace('endseq', '').strip().capitalize()
 
-# File uploader
-uploaded_image = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
+# ---------------- Image Upload & Processing ----------------
+uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
 
-if uploaded_image is not None:
-    # Save temporarily
-    img_path = os.path.join("temp_uploaded.jpg")
-    with open(img_path, "wb") as f:
-        f.write(uploaded_image.getbuffer())
+if uploaded_file is not None:
+    image = Image.open(uploaded_file).convert("RGB")
+    st.image(image, caption="Uploaded Image", use_column_width=True)
 
-    # Show uploaded image
-    st.image(img_path, caption="Uploaded Image", use_column_width=True)
+    if st.button("Generate Caption"):
+        st.info("Extracting image features...")
+        from tensorflow.keras.applications.inception_v3 import InceptionV3, preprocess_input
+        from tensorflow.keras.models import Model
+        from tensorflow.keras.preprocessing.image import img_to_array
 
-    # Extract features and generate caption
-    with st.spinner("Generating caption..."):
-        features = extract_features(img_path, feature_model)
-        caption = generate_caption(model, tokenizer, features, max_length)
+        # Feature extractor
+        def extract_features(image):
+            model = InceptionV3(weights='imagenet')
+            model = Model(inputs=model.input, outputs=model.layers[-2].output)
+            image = image.resize((299, 299))
+            image = img_to_array(image)
+            image = np.expand_dims(image, axis=0)
+            image = preprocess_input(image)
+            return model.predict(image)
 
-    # Display result
-    st.success("Your Caption:")
-    st.markdown(f"<h3 style='color:#4e8ef7'>{caption}</h3>", unsafe_allow_html=True)
+        photo_features = extract_features(image)
 
-    # Suitable for sharing
-    st.write("Copy and use this caption for your post on:")
-    st.markdown("- LinkedIn")
-    st.markdown("- Instagram")
-    st.markdown("- YouTube Shorts")
+        st.success("Features extracted. Generating caption...")
+        caption = generate_caption(model, tokenizer, photo_features, max_length)
+        
+        st.markdown(f"""
+        <div style="background-color: #ecf0f1; padding: 20px; border-radius: 10px; margin-top: 20px;">
+            <h4 style="color: #2980b9;"> Generated Caption:</h4>
+            <p style="font-size: 20px; color: #2c3e50;"><em>"{caption}"</em></p>
+        </div>
+        """, unsafe_allow_html=True)
