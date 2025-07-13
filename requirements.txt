@@ -1,5 +1,6 @@
 streamlit
-tensorflow
+tensorflow==2.13
 numpy
 pillow
 matplotlib
+nltk
