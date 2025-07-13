@@ -1,2 +1,7 @@
 streamlit==1.25.0
 tensorflow==2.10.1
+numpy
+Pillow
+matplotlib
+scikit-learn
+tqdm
